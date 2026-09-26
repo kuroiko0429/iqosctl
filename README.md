@@ -2,7 +2,7 @@
 
 <div align="center">
 
-**A command-line interface for controlling IQOS devices via Bluetooth Low Energy — a personal fork of [V-VX/iqos_cli](https://github.com/V-VX/iqos_cli), built on [V-VX/iqos](https://github.com/V-VX/iqos)**
+**A command-line interface for controlling IQOS devices via Bluetooth Low Energy — a personal fork of [hauntedfail/iqos_cli](https://github.com/hauntedfail/iqos_cli), built on [hauntedfail/iqos](https://github.com/hauntedfail/iqos)**
 
 [![Rust](https://img.shields.io/badge/rust-1.92%2B-orange.svg?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg?style=flat-square)](LICENSE)
@@ -32,9 +32,9 @@
 
 ## Overview
 
-iqosctl is a Rust-based command-line tool for controlling IQOS devices over Bluetooth Low Energy, built on top of [V-VX/iqos](https://github.com/V-VX/iqos). It supports both an interactive REPL and one-shot command execution, so you can either connect once and work from the `iqos>` prompt or run a single command directly from your shell.
+iqosctl is a Rust-based command-line tool for controlling IQOS devices over Bluetooth Low Energy, built on top of [hauntedfail/iqos](https://github.com/hauntedfail/iqos). It supports both an interactive REPL and one-shot command execution, so you can either connect once and work from the `iqos>` prompt or run a single command directly from your shell.
 
-This is a fork of [V-VX/iqos_cli](https://github.com/V-VX/iqos_cli) (the binary is still called `iqos`; only the project/crate name changed). On top of upstream it includes:
+This is a fork of [hauntedfail/iqos_cli](https://github.com/hauntedfail/iqos_cli) (the binary is still called `iqos`; only the project/crate name changed). On top of upstream it includes:
 
 - A fix for a panic in `bluez-async`'s D-Bus match cleanup on Linux (harmless but noisy).
 - A fix for a write-before-subscribe race in the SCP request/response path that could hang `info`/`diagnosis` indefinitely on some connections, plus a bounded timeout as a backstop.
@@ -46,7 +46,7 @@ This is a fork of [V-VX/iqos_cli](https://github.com/V-VX/iqos_cli) (the binary 
 
 ## Architecture
 
-All device protocol logic — BLE framing, capability negotiation, command encoding, response parsing — lives in the [iqos crate (V-VX/iqos)](https://github.com/V-VX/iqos). This repository is a thin CLI layer: it handles device discovery, user interaction, and argument parsing, then delegates every device operation to the crate's high-level API.
+All device protocol logic — BLE framing, capability negotiation, command encoding, response parsing — lives in the [iqos crate (hauntedfail/iqos)](https://github.com/hauntedfail/iqos). This repository is a thin CLI layer: it handles device discovery, user interaction, and argument parsing, then delegates every device operation to the crate's high-level API.
 
 ## Features
 
