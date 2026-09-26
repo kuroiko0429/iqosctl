@@ -196,10 +196,25 @@ This is useful after saving a device label, because it skips the manual "Connect
 | `iqos --model <model-or-label> <command>` | Connect to the selected target and run one command |
 | `iqos <command> --model <model-or-label>` | Same as above; global options may be placed after the command |
 | `iqos --timeout <secs> ...` | Override the BLE scan timeout |
+| `iqos --format json ...` | Emit machine-readable JSON for `battery`, `info`, `diagnosis`, and `device list` instead of text |
+| `iqos --retries <attempts> ...` | Override the maximum connection/command attempts (default `3`; also settable via `IQOS_MAX_RETRIES`) |
+| `iqos battery --watch [--interval <secs>]` | Connect once, then keep printing the battery level on an interval (default `2`s) until interrupted with Ctrl+C |
+| `iqos completions <bash\|zsh\|fish\|elvish\|powershell>` | Print a shell completion script to stdout |
 
 Built-in model selectors include `iluma`, `iluma-one`, `iluma-prime`, `iluma-i`, `iluma-i-one`, and `iluma-i-prime`. Saved labels are managed with the `device` command.
 
 `-v` / `--version` takes precedence over other arguments before `--`; it prints the CLI version and exits without scanning or connecting.
+
+On any connection or transport failure, IQOS CLI automatically retries the whole operation (re-scan, re-connect, re-run) up to `--retries` times with a short backoff between attempts, printing a warning before each retry. Failures that aren't connection-related (e.g. invalid arguments, an unknown saved label) are never retried.
+
+To enable shell completions, add the output of `iqos completions <shell>` to your shell's completion path, e.g. for bash:
+
+```bash
+iqos completions bash | sudo tee /etc/bash_completion.d/iqos > /dev/null
+# or, for a user-local install:
+mkdir -p ~/.local/share/bash-completion/completions
+iqos completions bash > ~/.local/share/bash-completion/completions/iqos
+```
 
 ### General
 
@@ -267,6 +282,26 @@ Diagnosis:
   Total puffs:     1234
   Days used:       42
   Battery voltage: 3.87V
+```
+
+### JSON Output & Watch Mode
+```bash
+$ iqos --model iluma-i --format json battery
+{
+  "battery_percent": 85
+}
+
+$ iqos --model iluma-i --format json diagnosis
+{
+  "battery_voltage": 3.87,
+  "days_used": 42,
+  "total_puffs": 1234
+}
+
+$ iqos --model iluma-i battery --watch --interval 5
+Watching battery level every 5s. Press Ctrl+C to stop.
+[+    0s] Battery: 85%
+[+    5s] Battery: 84%
 ```
 
 ### Brightness

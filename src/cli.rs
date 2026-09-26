@@ -1,8 +1,17 @@
 use std::time::Duration;
 
-use clap::{ArgAction, Parser, Subcommand};
+use clap::{ArgAction, Parser, Subcommand, ValueEnum};
+use clap_complete::Shell;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Output format for data commands (`battery`, `info`, `diagnosis`, `device list`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
+pub enum OutputFormat {
+    #[default]
+    Text,
+    Json,
+}
 
 #[derive(Debug, Parser)]
 #[command(
@@ -23,6 +32,14 @@ pub struct Cli {
     #[arg(long, value_name = "secs")]
     pub timeout: Option<u64>,
 
+    /// Output format for data commands.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    pub format: OutputFormat,
+
+    /// Maximum connection/command attempts before giving up.
+    #[arg(long, value_name = "attempts")]
+    pub retries: Option<u32>,
+
     #[command(subcommand)]
     pub command: Option<CliCommand>,
 }
@@ -39,7 +56,14 @@ pub enum CliCommand {
         args: Vec<String>,
     },
     /// Display battery level.
-    Battery,
+    Battery {
+        /// Keep polling and printing the battery level until interrupted (Ctrl+C).
+        #[arg(long)]
+        watch: bool,
+        /// Polling interval in seconds when using --watch (default: 2).
+        #[arg(long, value_name = "secs")]
+        interval: Option<u64>,
+    },
     /// Set display brightness.
     Brightness {
         #[arg(
@@ -100,6 +124,11 @@ pub enum CliCommand {
         )]
         args: Vec<String>,
     },
+    /// Generate a shell completion script.
+    Completions {
+        #[arg(value_enum)]
+        shell: Shell,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -137,7 +166,7 @@ impl CliCommand {
     pub fn into_one_shot(self) -> OneShotCommand {
         match self {
             Self::Autostart { args } => registered("autostart", args),
-            Self::Battery => registered("battery", Vec::new()),
+            Self::Battery { .. } => registered("battery", Vec::new()),
             Self::Brightness { args } => registered("brightness", args),
             Self::Device { command } => match command {
                 DeviceCommand::Save { label } => OneShotCommand::DeviceSave { label },
@@ -153,6 +182,9 @@ impl CliCommand {
             Self::Smartgesture { args } => registered("smartgesture", args),
             Self::Unlock => registered("unlock", Vec::new()),
             Self::Vibration { args } => registered("vibration", args),
+            Self::Completions { .. } => {
+                unreachable!("completions are handled before device dispatch")
+            }
         }
     }
 }
@@ -172,6 +204,21 @@ pub fn scan_timeout(cli_value: Option<u64>) -> Duration {
         .unwrap_or(10);
 
     Duration::from_secs(seconds)
+}
+
+/// Resolve the maximum number of connection/command attempts.
+///
+/// Falls back to `IQOS_MAX_RETRIES`, then a default of 3 attempts. Values are
+/// clamped to at least 1 so retry logic can always assume at least one try.
+pub fn max_attempts(cli_value: Option<u32>) -> u32 {
+    cli_value
+        .or_else(|| {
+            std::env::var("IQOS_MAX_RETRIES")
+                .ok()
+                .and_then(|value| value.parse().ok())
+        })
+        .unwrap_or(3)
+        .max(1)
 }
 
 pub fn print_version() {
@@ -329,7 +376,13 @@ mod tests {
         let cli = Cli::try_parse_from(args).unwrap();
         assert_eq!(cli.model.as_deref(), Some("iluma-i"));
         assert_eq!(cli.timeout, Some(2));
-        assert!(matches!(cli.command, Some(CliCommand::Battery)));
+        assert!(matches!(
+            cli.command,
+            Some(CliCommand::Battery {
+                watch: false,
+                interval: None
+            })
+        ));
     }
 
     #[test]

@@ -7,17 +7,20 @@ use btleplug::api::{
     Central, CentralEvent, Manager as _, Peripheral as _, PeripheralProperties, ScanFilter,
 };
 use btleplug::platform::{Adapter, Manager, Peripheral, PeripheralId};
-use clap::Parser;
+use clap::{CommandFactory, Parser};
+use clap_complete::{generate, Shell};
 use colored::Colorize;
 use futures::stream::StreamExt;
 use iqos::{DeviceModel, Iqos, IqosBle};
+use serde_json::Value;
 
 mod cli;
 mod config;
+mod json_output;
 mod loader;
 mod model_selector;
 
-use cli::{normalize_global_options, scan_timeout, Cli, OneShotCommand};
+use cli::{max_attempts, normalize_global_options, scan_timeout, Cli, CliCommand, OneShotCommand, OutputFormat};
 use config::{
     normalize_device_label, print_saved_devices, validate_device_label, AppConfig, ConnectedDevice,
 };
@@ -29,6 +32,13 @@ const EXIT_CONNECTION_FAILED: i32 = 1;
 const EXIT_INVALID_ARGUMENTS: i32 = 2;
 const EXIT_DEVICE_COMMAND_FAILED: i32 = 3;
 const EXIT_LABEL_NOT_FOUND: i32 = 4;
+
+/// Delay between reconnect attempts when a connection or command fails with
+/// a retriable (transport/connection) error.
+const RETRY_BACKOFF: Duration = Duration::from_secs(2);
+
+/// Default polling interval for `battery --watch` when `--interval` is omitted.
+const DEFAULT_WATCH_INTERVAL_SECS: u64 = 2;
 
 #[derive(Debug)]
 struct ExitError {
@@ -153,8 +163,41 @@ async fn run_cli(mut args: Vec<String>) -> i32 {
         return 0;
     }
 
+    if let Some(CliCommand::Completions { shell }) = &cli.command {
+        print_completions(*shell);
+        return 0;
+    }
+
+    let attempts = max_attempts(cli.retries);
+
+    let watch_interval = if let Some(CliCommand::Battery {
+        watch: true,
+        interval,
+    }) = &cli.command
+    {
+        Some(Duration::from_secs(
+            interval.unwrap_or(DEFAULT_WATCH_INTERVAL_SECS).max(1),
+        ))
+    } else {
+        None
+    };
+
+    if let Some(interval) = watch_interval {
+        return match run_battery_watch(cli.model, scan_timeout(cli.timeout), interval, attempts)
+            .await
+        {
+            Ok(()) => 0,
+            Err(error) => {
+                eprintln!("Error: {:#}", error.error);
+                error.code
+            }
+        };
+    }
+
     let Some(command) = cli.command else {
-        return match run_auto_connected_console(cli.model, scan_timeout(cli.timeout)).await {
+        return match run_auto_connected_console(cli.model, scan_timeout(cli.timeout), attempts)
+            .await
+        {
             Ok(()) => 0,
             Err(error) => {
                 eprintln!("Error: {:#}", error.error);
@@ -167,6 +210,8 @@ async fn run_cli(mut args: Vec<String>) -> i32 {
         cli.model,
         scan_timeout(cli.timeout),
         command.into_one_shot(),
+        cli.format,
+        attempts,
     )
     .await
     {
@@ -178,9 +223,16 @@ async fn run_cli(mut args: Vec<String>) -> i32 {
     }
 }
 
+fn print_completions(shell: Shell) {
+    let mut command = Cli::command();
+    let name = command.get_name().to_string();
+    generate(shell, &mut command, name, &mut io::stdout());
+}
+
 async fn run_auto_connected_console(
     model_arg: Option<String>,
     timeout: Duration,
+    attempts: u32,
 ) -> std::result::Result<(), ExitError> {
     print_ascii_art();
 
@@ -189,7 +241,7 @@ async fn run_auto_connected_console(
         target,
         should_save_memory,
     } = load_config_and_resolve_target(model_arg.as_deref(), true)?;
-    let (iqos, device) = connect_target(&target, timeout).await?;
+    let (iqos, device) = connect_target_with_retry(&target, timeout, attempts).await?;
 
     apply_connection_memory(&mut config, &target, &device);
     save_connection_memory(&config, &target, should_save_memory, true)?;
@@ -199,16 +251,87 @@ async fn run_auto_connected_console(
         .map_err(|error| ExitError::new(EXIT_DEVICE_COMMAND_FAILED, error))
 }
 
+/// Connect to `target`, retrying on connection/transport failures up to
+/// `attempts` times with a fixed backoff between tries. Non-retriable
+/// failures (e.g. invalid arguments) are returned immediately.
+async fn connect_target_with_retry(
+    target: &ScanTarget,
+    timeout: Duration,
+    attempts: u32,
+) -> std::result::Result<(IqosBle, ConnectedDevice), ExitError> {
+    let mut last_error: Option<ExitError> = None;
+    for attempt in 1..=attempts {
+        match connect_target(target, timeout).await {
+            Ok(result) => return Ok(result),
+            Err(error) if attempt < attempts && is_retriable(error.code) => {
+                eprintln!(
+                    "Warning: connection attempt {attempt}/{attempts} failed: {:#} (retrying in {}s)",
+                    error.error,
+                    RETRY_BACKOFF.as_secs()
+                );
+                last_error = Some(error);
+                tokio::time::sleep(RETRY_BACKOFF).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err(last_error.expect("loop returns before exhausting attempts unless an error was recorded"))
+}
+
+fn is_retriable(code: i32) -> bool {
+    code == EXIT_CONNECTION_FAILED || code == EXIT_DEVICE_COMMAND_FAILED
+}
+
+/// Connect once, then poll the battery level on an interval until the
+/// process is interrupted (Ctrl+C).
+async fn run_battery_watch(
+    model_arg: Option<String>,
+    timeout: Duration,
+    interval: Duration,
+    attempts: u32,
+) -> std::result::Result<(), ExitError> {
+    let ResolvedTarget {
+        mut config,
+        target,
+        should_save_memory,
+    } = load_config_and_resolve_target(model_arg.as_deref(), true)?;
+    let (ble, device) = connect_target_with_retry(&target, timeout, attempts).await?;
+    apply_connection_memory(&mut config, &target, &device);
+    save_connection_memory(&config, &target, should_save_memory, true)?;
+
+    println!(
+        "Watching battery level every {}s. Press Ctrl+C to stop.",
+        interval.as_secs()
+    );
+    let start = std::time::Instant::now();
+    loop {
+        match ble.read_battery_level().await {
+            Ok(level) => println!("[+{:>5}s] Battery: {level}%", start.elapsed().as_secs()),
+            Err(error) => eprintln!("Warning: battery read failed: {error:#}"),
+        }
+        tokio::time::sleep(interval).await;
+    }
+}
+
 async fn run_one_shot(
     model_arg: Option<String>,
     timeout: Duration,
     command: OneShotCommand,
+    format: OutputFormat,
+    attempts: u32,
 ) -> std::result::Result<(), ExitError> {
     match command {
         OneShotCommand::DeviceList => {
             let config = AppConfig::load()
                 .map_err(|error| ExitError::new(EXIT_DEVICE_COMMAND_FAILED, error))?;
-            print_saved_devices(&config);
+            if format == OutputFormat::Json {
+                print_json(
+                    serde_json::to_value(&config)
+                        .map_err(|error| ExitError::new(EXIT_DEVICE_COMMAND_FAILED, error))?,
+                )?;
+            } else {
+                print_saved_devices(&config);
+            }
             Ok(())
         }
         OneShotCommand::DeviceRemove { label } => {
@@ -238,7 +361,7 @@ async fn run_one_shot(
             let ResolvedTarget {
                 mut config, target, ..
             } = load_config_and_resolve_target(model_arg.as_deref(), false)?;
-            let (iqos, device) = connect_target(&target, timeout).await?;
+            let (iqos, device) = connect_target_with_retry(&target, timeout, attempts).await?;
             apply_connection_memory(&mut config, &target, &device);
             config
                 .save_device(label.clone(), &device)
@@ -256,15 +379,98 @@ async fn run_one_shot(
                 target,
                 should_save_memory,
             } = load_config_and_resolve_target(model_arg.as_deref(), true)?;
-            let (iqos, device) = connect_target(&target, timeout).await?;
-            apply_connection_memory(&mut command_config, &target, &device);
-            save_connection_memory(&command_config, &target, should_save_memory, true)?;
 
-            run_registered_command(Iqos::new(iqos), name, args)
-                .await
-                .map_err(|error| ExitError::new(classify_command_error(&error), error))
+            let mut last_error: Option<ExitError> = None;
+            for attempt in 1..=attempts {
+                let outcome = run_registered_once(
+                    &target,
+                    timeout,
+                    name,
+                    &args,
+                    format,
+                    &mut command_config,
+                    should_save_memory,
+                )
+                .await;
+
+                match outcome {
+                    Ok(()) => return Ok(()),
+                    Err(error) if attempt < attempts && is_retriable(error.code) => {
+                        eprintln!(
+                            "Warning: {:#} (attempt {attempt}/{attempts}, retrying in {}s)",
+                            error.error,
+                            RETRY_BACKOFF.as_secs()
+                        );
+                        last_error = Some(error);
+                        tokio::time::sleep(RETRY_BACKOFF).await;
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            Err(last_error
+                .expect("loop returns before exhausting attempts unless an error was recorded"))
         }
     }
+}
+
+/// Connect once and run `name` with `args`, or — when `format` is
+/// [`OutputFormat::Json`] and `name` is a supported data command — fetch the
+/// same data directly and print it as JSON instead of routing through the
+/// text-oriented command registry.
+async fn run_registered_once(
+    target: &ScanTarget,
+    timeout: Duration,
+    name: &'static str,
+    args: &[String],
+    format: OutputFormat,
+    command_config: &mut AppConfig,
+    should_save_memory: bool,
+) -> std::result::Result<(), ExitError> {
+    let (ble, device) = connect_target(target, timeout).await?;
+    apply_connection_memory(command_config, target, &device);
+    save_connection_memory(command_config, target, should_save_memory, true)?;
+
+    if format == OutputFormat::Json {
+        match name {
+            "battery" => {
+                let level = ble
+                    .read_battery_level()
+                    .await
+                    .map_err(|error| ExitError::new(EXIT_DEVICE_COMMAND_FAILED, error))?;
+                return print_json(json_output::battery(level));
+            }
+            "info" => {
+                let model = ble.model();
+                let device_info = ble.device_info().clone();
+                let iqos = Iqos::new(ble);
+                let status = iqos
+                    .read_device_status(model, device_info)
+                    .await
+                    .map_err(|error| ExitError::new(EXIT_DEVICE_COMMAND_FAILED, error))?;
+                return print_json(json_output::device_status(&status));
+            }
+            "diagnosis" => {
+                let iqos = Iqos::new(ble);
+                let data = iqos
+                    .read_diagnosis()
+                    .await
+                    .map_err(|error| ExitError::new(EXIT_DEVICE_COMMAND_FAILED, error))?;
+                return print_json(json_output::diagnosis(&data));
+            }
+            _ => {}
+        }
+    }
+
+    run_registered_command(Iqos::new(ble), name, args.to_vec())
+        .await
+        .map_err(|error| ExitError::new(classify_command_error(&error), error))
+}
+
+fn print_json(value: Value) -> std::result::Result<(), ExitError> {
+    let text = serde_json::to_string_pretty(&value)
+        .map_err(|error| ExitError::new(EXIT_DEVICE_COMMAND_FAILED, error))?;
+    println!("{text}");
+    Ok(())
 }
 
 fn load_config_and_resolve_target(

@@ -209,7 +209,13 @@ async fn load_device_info(peripheral: &Peripheral) -> Result<DeviceInfo> {
             .read(characteristic)
             .await
             .map_err(|error| Error::Transport(error.to_string()))?;
-        let value = String::from_utf8_lossy(&value).to_string();
+        // BLE device-information characteristics are often fixed-length and
+        // NUL-padded by the peripheral; strip trailing NULs so callers (and
+        // anything serializing this data, e.g. to JSON or a config file)
+        // don't see embedded `\0` bytes.
+        let value = String::from_utf8_lossy(&value)
+            .trim_end_matches('\0')
+            .to_string();
 
         match prefix {
             MODEL_NUMBER_CHAR_UUID_PREFIX => info.model_number = Some(value),
