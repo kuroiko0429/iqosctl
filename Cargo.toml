@@ -1,8 +1,13 @@
 [package]
-name = "iqos_cli"
+name = "iqosctl"
+description = "Fork of iqos_cli: a command-line interface for controlling IQOS devices over BLE"
 version = "1.0.1"
 edition = "2021"
 rust-version = "1.92"
+
+[[bin]]
+name = "iqos"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0"

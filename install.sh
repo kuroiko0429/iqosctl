@@ -1,11 +1,11 @@
 #!/bin/sh
 set -eu
 
-OWNER="V-VX"
-REPO="iqos_cli"
-API_ROOT="${IQOS_CLI_GITHUB_API_ROOT:-https://api.github.com}"
-VERSION="${IQOS_CLI_VERSION:-latest}"
-INSTALL_DIR="${IQOS_CLI_INSTALL_DIR:-}"
+OWNER="kuroiko0429"
+REPO="iqosctl"
+API_ROOT="${IQOSCTL_GITHUB_API_ROOT:-https://api.github.com}"
+VERSION="${IQOSCTL_VERSION:-latest}"
+INSTALL_DIR="${IQOSCTL_INSTALL_DIR:-}"
 
 info() {
     printf '%s\n' "info: $*"
@@ -152,12 +152,12 @@ detect_linux_libc() {
         return
     fi
 
-    die "Could not determine Linux libc. Set IQOS_CLI_TARGET to linux-<arch>-gnu or linux-<arch>-musl."
+    die "Could not determine Linux libc. Set IQOSCTL_TARGET to linux-<arch>-gnu or linux-<arch>-musl."
 }
 
 target_candidates() {
-    if [ -n "${IQOS_CLI_TARGET:-}" ]; then
-        printf '%s\n' "$IQOS_CLI_TARGET"
+    if [ -n "${IQOSCTL_TARGET:-}" ]; then
+        printf '%s\n' "$IQOSCTL_TARGET"
         return
     fi
 
@@ -189,7 +189,7 @@ archive_name() {
 
     case "$package" in
         macos-* | linux-*)
-            printf '%s\n' "iqos_cli-${tag}-${package}.tar.gz"
+            printf '%s\n' "iqosctl-${tag}-${package}.tar.gz"
             ;;
         *)
             die "Unsupported package target for install.sh: $package"
@@ -309,7 +309,7 @@ install_binary() {
     rm -f "$tmp_target" 2>/dev/null || true
 
     if ! has_cmd sudo; then
-        die "Cannot write to $install_dir and sudo is not available. Set IQOS_CLI_INSTALL_DIR to a writable directory."
+        die "Cannot write to $install_dir and sudo is not available. Set IQOSCTL_INSTALL_DIR to a writable directory."
     fi
 
     info "Installing with sudo to $install_dir."
@@ -361,7 +361,7 @@ main() {
 
     archive_path="${TMP_DIR}/${asset}"
 
-    info "Installing IQOS CLI ${tag} (${package})."
+    info "Installing iqosctl ${tag} (${package})."
     info "Downloading ${asset}..."
     if ! http_download "$asset_url" "$archive_path"; then
         die "Failed to download $asset."
@@ -376,7 +376,7 @@ main() {
         die "The release archive contains unsafe paths."
     fi
 
-    expected_member="iqos_cli-${tag}-${package}/iqos"
+    expected_member="iqosctl-${tag}-${package}/iqos"
     if grep -Fx "$expected_member" "$archive_listing" >/dev/null; then
         binary_member="$expected_member"
     elif grep -Fx "./$expected_member" "$archive_listing" >/dev/null; then

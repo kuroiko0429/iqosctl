@@ -105,18 +105,18 @@ jobs:
           cargo build --release --locked --target aarch64-apple-darwin
           mkdir -p "target/${{ matrix.target }}/release"
           lipo -create \
-            target/x86_64-apple-darwin/release/iqos_cli \
-            target/aarch64-apple-darwin/release/iqos_cli \
-            -output "target/${{ matrix.target }}/release/iqos_cli"
+            target/x86_64-apple-darwin/release/iqos \
+            target/aarch64-apple-darwin/release/iqos \
+            -output "target/${{ matrix.target }}/release/iqos"
 
       - name: Package Unix asset
         if: runner.os != 'Windows'
         shell: bash
         run: |
           tag="${{ needs.validate.outputs.tag }}"
-          name="iqos_cli-${tag}-${{ matrix.package }}"
+          name="iqosctl-${tag}-${{ matrix.package }}"
           mkdir -p "dist/${name}"
-          cp "target/${{ matrix.target }}/release/iqos_cli" "dist/${name}/iqos"
+          cp "target/${{ matrix.target }}/release/iqos" "dist/${name}/iqos"
           cp README.md LICENSE "dist/${name}/"
           chmod +x "dist/${name}/iqos"
           tar -czf "dist/${name}.tar.gz" -C dist "${name}"
@@ -126,17 +126,17 @@ jobs:
         shell: pwsh
         run: |
           $tag = "${{ needs.validate.outputs.tag }}"
-          $name = "iqos_cli-$tag-${{ matrix.package }}"
+          $name = "iqosctl-$tag-${{ matrix.package }}"
           New-Item -ItemType Directory -Force -Path "dist/$name" | Out-Null
-          Copy-Item "target/${{ matrix.target }}/release/iqos_cli.exe" "dist/$name/iqos.exe"
+          Copy-Item "target/${{ matrix.target }}/release/iqos.exe" "dist/$name/iqos.exe"
           Copy-Item "README.md", "LICENSE" "dist/$name/"
           Compress-Archive -Path "dist/$name/*" -DestinationPath "dist/$name.zip" -Force
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v6
         with:
-          name: iqos-cli-${{ matrix.package }}
-          path: dist/iqos_cli-${{ needs.validate.outputs.tag }}-${{ matrix.package }}.${{ matrix.archive }}
+          name: iqosctl-${{ matrix.package }}
+          path: dist/iqosctl-${{ needs.validate.outputs.tag }}-${{ matrix.package }}.${{ matrix.archive }}
           if-no-files-found: error
 
   publish:
@@ -151,14 +151,14 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           path: release-assets
-          pattern: iqos-cli-*
+          pattern: iqosctl-*
           merge-multiple: true
 
       - name: Generate checksums
         shell: bash
         run: |
           cd release-assets
-          sha256sum iqos_cli-* > SHA256SUMS.txt
+          sha256sum iqosctl-* > SHA256SUMS.txt
 
       - name: Create or update release
         shell: bash

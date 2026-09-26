@@ -1,12 +1,12 @@
-# IQOS CLI
+# iqosctl
 
 <div align="center">
 
-**A command-line interface for controlling IQOS devices via Bluetooth Low Energy, built on [V-VX/iqos](https://github.com/V-VX/iqos)**
+**A command-line interface for controlling IQOS devices via Bluetooth Low Energy — a personal fork of [V-VX/iqos_cli](https://github.com/V-VX/iqos_cli), built on [V-VX/iqos](https://github.com/V-VX/iqos)**
 
 [![Rust](https://img.shields.io/badge/rust-1.92%2B-orange.svg?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg?style=flat-square)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg?style=flat-square)](https://github.com/v-vx/iqos_cli)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg?style=flat-square)](https://github.com/kuroiko0429/iqosctl)
 
 [Features](#-features) • [Installation](#-installation) • [Quick Start](#-quick-start) • [Commands](#-commands-reference) • [Contributing](#-contributing)
 
@@ -32,7 +32,17 @@
 
 ## Overview
 
-IQOS CLI is a Rust-based command-line tool for controlling IQOS devices over Bluetooth Low Energy, built on top of [V-VX/iqos](https://github.com/V-VX/iqos). It supports both an interactive REPL and one-shot command execution, so you can either connect once and work from the `iqos>` prompt or run a single command directly from your shell.
+iqosctl is a Rust-based command-line tool for controlling IQOS devices over Bluetooth Low Energy, built on top of [V-VX/iqos](https://github.com/V-VX/iqos). It supports both an interactive REPL and one-shot command execution, so you can either connect once and work from the `iqos>` prompt or run a single command directly from your shell.
+
+This is a fork of [V-VX/iqos_cli](https://github.com/V-VX/iqos_cli) (the binary is still called `iqos`; only the project/crate name changed). On top of upstream it includes:
+
+- A fix for a panic in `bluez-async`'s D-Bus match cleanup on Linux (harmless but noisy).
+- A fix for a write-before-subscribe race in the SCP request/response path that could hang `info`/`diagnosis` indefinitely on some connections, plus a bounded timeout as a backstop.
+- A fix for embedded NUL bytes in BLE device-information strings (model/serial/manufacturer/firmware) leaking into JSON output and the saved `config.toml`.
+- `--format json` for `battery`, `info`, `diagnosis`, and `device list`.
+- `battery --watch [--interval <secs>]` for continuous polling without reconnecting.
+- `--retries <attempts>` / `IQOS_MAX_RETRIES` for automatic reconnect-and-retry on transport failures.
+- `completions <bash|zsh|fish|elvish|powershell>` for shell completion scripts.
 
 ## Architecture
 
@@ -93,13 +103,13 @@ All device protocol logic — BLE framing, capability negotiation, command encod
 Install the latest GitHub Release without a local Rust toolchain:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/V-VX/iqos_cli/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/kuroiko0429/iqosctl/main/install.sh | sh
 ```
 
 If `curl` is unavailable, `wget` also works:
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/V-VX/iqos_cli/main/install.sh | sh
+wget -qO- https://raw.githubusercontent.com/kuroiko0429/iqosctl/main/install.sh | sh
 ```
 
 The installer detects macOS or Linux, selects the matching release package, verifies `SHA256SUMS.txt` when available, and installs the executable as `iqos`. By default it installs to `~/.local/bin` when possible and falls back to `/usr/local/bin` with `sudo` when needed.
@@ -107,8 +117,8 @@ The installer detects macOS or Linux, selects the matching release package, veri
 Use these environment variables to customise the install:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/V-VX/iqos_cli/main/install.sh | IQOS_CLI_VERSION=v1.0.1 sh
-curl -fsSL https://raw.githubusercontent.com/V-VX/iqos_cli/main/install.sh | IQOS_CLI_INSTALL_DIR="$HOME/bin" sh
+curl -fsSL https://raw.githubusercontent.com/kuroiko0429/iqosctl/main/install.sh | IQOSCTL_VERSION=v1.0.1 sh
+curl -fsSL https://raw.githubusercontent.com/kuroiko0429/iqosctl/main/install.sh | IQOSCTL_INSTALL_DIR="$HOME/bin" sh
 ```
 
 ### From Source
@@ -116,10 +126,10 @@ curl -fsSL https://raw.githubusercontent.com/V-VX/iqos_cli/main/install.sh | IQO
 Requires **Rust 1.92 or later**. [Install Rust](https://rustup.rs/) first.
 
 ```bash
-git clone https://github.com/V-VX/iqos_cli.git
-cd iqos_cli
+git clone https://github.com/kuroiko0429/iqosctl.git
+cd iqosctl
 cargo build --release
-./target/release/iqos_cli
+./target/release/iqos
 ```
 
 ### Via Cargo
@@ -132,7 +142,7 @@ cargo install --path .
 
 ## Quick Start
 
-Examples below use `iqos` as the command name. When running directly from this repository, use `./target/release/iqos_cli` or `cargo run --release --` in its place.
+Examples below use `iqos` as the command name. When running directly from this repository, use `./target/release/iqos` or `cargo run --release --` in its place.
 
 ### Interactive Mode
 
@@ -381,13 +391,14 @@ sudo usermod -a -G bluetooth $USER
 ### Project Structure
 
 ```
-iqos_cli/
+iqosctl/
 ├── src/
 │   ├── main.rs              # Entry point and BLE device discovery
-│   └── loader/              # CLI interface
+│   ├── cli.rs                # clap argument definitions
+│   ├── json_output.rs        # JSON formatters for --format json
+│   └── loader/               # CLI interface
 │       ├── mod.rs           # Console runner (run_console)
 │       ├── parser.rs        # IQOSConsole REPL and command dispatch
-│       ├── compat.rs        # Device capability workarounds
 │       └── cmds/            # Per-command implementations
 ├── Cargo.toml
 └── README.md
@@ -458,6 +469,6 @@ Built with [btleplug](https://github.com/deviceplug/btleplug) for Bluetooth Low 
 
 <div align="center">
 
-**Issues:** [github.com/v-vx/iqos_cli/issues](https://github.com/v-vx/iqos_cli/issues)
+**Issues:** [github.com/kuroiko0429/iqosctl/issues](https://github.com/kuroiko0429/iqosctl/issues)
 
 </div>

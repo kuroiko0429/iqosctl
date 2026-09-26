@@ -547,7 +547,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "iqos_cli"
+name = "iqosctl"
 version = "1.0.1"
 dependencies = [
  "anyhow",
