@@ -415,28 +415,54 @@ impl<T: Transport> Iqos<T> {
         device_info: DeviceInfo,
     ) -> Result<DeviceStatus> {
         let product_number = self.read_product_number(ProductNumberKind::Stick).await?;
-        let stick_firmware = self.read_firmware_version(FirmwareKind::Stick).await?;
-        let (holder_product_number, holder_firmware) = if model.supports_holder_features() {
-            (
-                Some(self.read_product_number(ProductNumberKind::Holder).await?),
-                Some(self.read_firmware_version(FirmwareKind::Holder).await?),
-            )
-        } else {
-            (None, None)
-        };
-        let battery_voltage = match self.read_battery_voltage().await {
-            Ok(voltage) => Some(voltage),
-            Err(Error::Transport(_)) => None,
-            Err(error) => return Err(error),
-        };
+
+        let stick_firmware_raw =
+            self.transport.request(&protocol::LOAD_STICK_FIRMWARE_VERSION_COMMAND).await?;
+        let stick_firmware =
+            FirmwareVersion::from_response(&stick_firmware_raw, FirmwareKind::Stick)?;
+
+        let (holder_product_number, holder_firmware, holder_firmware_raw) =
+            if model.supports_holder_features() {
+                let holder_number = self.read_product_number(ProductNumberKind::Holder).await?;
+                let raw = self
+                    .transport
+                    .request(&protocol::LOAD_HOLDER_FIRMWARE_VERSION_COMMAND)
+                    .await?;
+                let firmware = FirmwareVersion::from_response(&raw, FirmwareKind::Holder)?;
+                (Some(holder_number), Some(firmware), Some(raw))
+            } else {
+                (None, None, None)
+            };
+
+        let (battery_voltage, battery_voltage_raw) =
+            match self.transport.request(&protocol::LOAD_BATTERY_VOLTAGE_COMMAND).await {
+                Ok(raw) => {
+                    let voltage = protocol::DiagnosticDataBuilder::default()
+                        .parse(&raw)?
+                        .build()
+                        .battery_voltage
+                        .ok_or_else(|| {
+                            Error::ProtocolDecode(
+                                "battery voltage not present in response".to_string(),
+                            )
+                        })?;
+                    (Some(voltage), Some(raw))
+                }
+                Err(Error::Transport(_)) => (None, None),
+                Err(error) => return Err(error),
+            };
+
         Ok(DeviceStatus {
             model,
             device_info,
             product_number,
             stick_firmware,
+            stick_firmware_raw,
             holder_product_number,
             holder_firmware,
+            holder_firmware_raw,
             battery_voltage,
+            battery_voltage_raw,
         })
     }
 
@@ -1237,6 +1263,38 @@ mod tests {
                 protocol::LOAD_STICK_FIRMWARE_VERSION_COMMAND.to_vec(),
                 protocol::LOAD_BATTERY_VOLTAGE_COMMAND.to_vec(),
             ],
+        );
+    }
+
+    #[test]
+    fn read_device_status_captures_raw_response_bytes_alongside_decoded_values() {
+        // Confirms DeviceStatus surfaces the full raw frames (not just the
+        // decoded fields) using a *single* request per value -- no extra
+        // round-trips beyond what decoding alone would need.
+        let stick_bytes = vec![0x00, 0xC0, 0x88, 0x00, 0x00, 0x00, 0x02, 0x05, 0x07, 0x18, 0xAB];
+        let holder_bytes =
+            vec![0x00, 0x08, 0x88, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x19, 0xCD];
+        let battery_bytes =
+            vec![0x00, 0x08, 0x88, 0x21, 0x00, 0xA8, 0x10, 0x00, 0x00, 0x66, 0x06, 0xEF];
+        let transport = MockTransport::with_responses([
+            Ok([&[0x00, 0xC0, 0x88, 0x03][..], b"STICK12345", &[0xAA]].concat()),
+            Ok(stick_bytes.clone()),
+            Ok([&[0x00, 0x08, 0x88, 0x03][..], b"HOLDER12345"].concat()),
+            Ok(holder_bytes.clone()),
+            Ok(battery_bytes.clone()),
+        ]);
+        let iqos = Iqos::new(transport);
+
+        let status = block_on(iqos.read_device_status(DeviceModel::Iluma, DeviceInfo::default()))
+            .expect("holder model status should succeed");
+
+        assert_eq!(status.stick_firmware_raw, stick_bytes);
+        assert_eq!(status.holder_firmware_raw, Some(holder_bytes));
+        assert_eq!(status.battery_voltage_raw, Some(battery_bytes));
+        assert_eq!(
+            iqos.transport().recorded_requests().len(),
+            5,
+            "raw byte capture must not add extra requests beyond the decoded read"
         );
     }
 

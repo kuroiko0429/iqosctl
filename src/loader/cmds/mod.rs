@@ -10,6 +10,7 @@ pub mod flexpuff;
 pub mod help;
 pub mod info;
 pub mod lock;
+pub mod raw;
 pub mod smartgesture;
 pub mod unlock;
 pub mod version;

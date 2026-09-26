@@ -18,6 +18,13 @@ pub struct DeviceStatus {
     pub product_number: String,
     /// Firmware version reported by the stick, or by the device itself on one-piece models.
     pub stick_firmware: FirmwareVersion,
+    /// Full raw response frame the stick firmware version was decoded from.
+    ///
+    /// [`FirmwareVersion::from_response`] only decodes 4 of this frame's
+    /// bytes; the rest (a handful of leading bytes plus a longer trailing
+    /// block observed on real hardware) are not yet understood. Exposed for
+    /// inspection rather than discarded.
+    pub stick_firmware_raw: Vec<u8>,
     /// Product number reported by the holder when
     /// [`DeviceModel::supports_holder_features`](crate::protocol::DeviceModel::supports_holder_features)
     /// returns `true`.
@@ -26,6 +33,14 @@ pub struct DeviceStatus {
     /// [`DeviceModel::supports_holder_features`](crate::protocol::DeviceModel::supports_holder_features)
     /// returns `true`.
     pub holder_firmware: Option<FirmwareVersion>,
+    /// Full raw response frame the holder firmware version was decoded from,
+    /// when applicable. See [`DeviceStatus::stick_firmware_raw`].
+    pub holder_firmware_raw: Option<Vec<u8>>,
     /// Battery cell voltage in volts (e.g. `4.2`), or `None` if the SCP transport read failed.
     pub battery_voltage: Option<f32>,
+    /// Full raw response frame the battery voltage was decoded from, when
+    /// the read succeeded. Only the first few bytes are decoded into
+    /// [`DeviceStatus::battery_voltage`]; on real hardware the rest of this
+    /// frame carries additional undecoded, non-zero data.
+    pub battery_voltage_raw: Option<Vec<u8>>,
 }

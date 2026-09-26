@@ -44,6 +44,8 @@ This is a fork of [hauntedfail/iqos_cli](https://github.com/hauntedfail/iqos_cli
 - `--retries <attempts>` / `IQOS_MAX_RETRIES` for automatic reconnect-and-retry on transport failures.
 - `completions <bash|zsh|fish|elvish|powershell>` for shell completion scripts.
 - `diagnosis --raw` to dump every telemetry tag/value block the device reports, including ones the reverse-engineered protocol doesn't decode into a named field yet.
+- `info --raw` to dump the full firmware/battery-voltage response frames, which likewise carry undecoded (and non-zero) trailing bytes on real hardware.
+- `raw <preset|hex-bytes>` for sending any SCP command and inspecting the raw response — the general-purpose tool behind both of the above.
 
 ## Architecture
 
@@ -233,7 +235,7 @@ iqos completions bash > ~/.local/share/bash-completion/completions/iqos
 |---------|-------------|
 | `help` | List all available commands |
 | `version` | Show the IQOS CLI version |
-| `info` | Show device model, serial number, GATT metadata, firmware, product number, and battery voltage |
+| `info [--raw]` | Show device model, serial number, GATT metadata, firmware, product number, and battery voltage. `--raw` also dumps the full response frame behind each firmware/voltage read |
 | `battery` | Show current battery level |
 | `diagnosis [--raw]` | Show puff count, days used, and battery voltage. `--raw` also lists every telemetry tag the device reports, including ones not yet mapped to a named field |
 | `lock` | Lock the device |
@@ -281,6 +283,23 @@ Vibration flags: `heating`, `starting`, `puffend`, `terminated`, `charge`¹
 | `smartgesture <enable\|disable>` | Toggle Smart Gesture | ILUMA / ILUMA Prime / ILUMA i / ILUMA i One / ILUMA i Prime |
 | `autostart <on\|off\|status>` | Show or toggle automatic heating start | ILUMA i / ILUMA i One / ILUMA i Prime |
 
+### Protocol Debugging
+
+| Command | Description |
+|---------|-------------|
+| `raw <preset\|hex-bytes>` | Send a raw SCP command and dump the full raw response frame |
+
+Presets (reuse the exact command bytes the decoded commands send): `brightness`,
+`firmware-stick`, `firmware-holder`, `autostart`, `flexpuff`, `flexbattery`,
+`pausemode`, `vibration`, `vibration-charge-start`, `battery-voltage`,
+`telemetry`, `timestamp`, `product-stick`, `product-holder`. Or pass raw hex
+bytes directly, e.g. `raw "00 C0 02 23 C3"` / `raw 00C00223C3`.
+
+This exists because several response frames are longer than what gets
+decoded — `diagnosis --raw` and `info --raw` already formalize the two
+confirmed cases (undecoded telemetry tags, undecoded firmware/battery-voltage
+trailing bytes); `raw` is the general tool for finding the next one.
+
 ## Examples
 
 ### Battery & Diagnosis
@@ -322,6 +341,54 @@ Tags 0x20 and 0x18 are real device telemetry (confirmed against a physical
 ILUMA i) with no known meaning yet — the device sends the same frame twice
 per read, hence each tag appearing twice. `--format json diagnosis --raw`
 includes the same `telemetry_tags` array unconditionally.
+
+### Raw Firmware/Battery-Voltage Frames
+
+Same story for `info`: `FirmwareVersion` only decodes 4 bytes out of each
+19-byte firmware response, and battery voltage only 2 bytes out of 19. On a
+real ILUMA i, `--raw` shows the rest isn't just padding:
+
+```
+iqos> info --raw
+...
+Stick firmware raw (19 bytes):
+  [  0] 00 C0 88 00 10 00 87 05
+  [  8] 00 21 A0 C0 01 14 01 01
+  [ 16] 06 06 3F
+Holder firmware raw (19 bytes):
+  [  0] 00 08 88 00 0E 00 7C 06
+  [  8] 00 72 B2 C0 01 14 02 01
+  [ 16] 0A 06 FE
+Battery voltage raw (19 bytes):
+  [  0] 00 C0 88 21 E9 C9 24 00
+  [  8] 66 06 00 00 00 00 00 00
+  [ 16] 00 00 B9
+```
+
+Bytes 10-17 of both firmware frames share a structured pattern (`C0 01 14 ..
+01 .. 06`) that isn't random padding, and battery voltage's bytes 8-9
+(`66 06`, i.e. 1638) are consistently non-zero across reads — neither is
+currently decoded into anything. Bytes[0..4] are the header, `battery_voltage`
+lives in bytes[5..7]; everything else here is unmapped.
+
+### Generic Protocol Probing
+
+```
+iqos> raw telemetry
+Command (8 bytes):
+  [  0] 00 C9 10 02 01 01 75 D6
+Response (40 bytes):
+  [  0] 00 08 90 22 01 01 00 00
+  [  8] 00 00 93 07 00 8E 01 00
+  [ 16] 00 00 FA 07 00 20 02 00
+  [ 24] 00 00 86 05 00 17 03 00
+  [ 32] 00 00 1D 00 00 18 F4 C8
+```
+
+`diagnosis`'s telemetry parser only reads 38 of these 40 bytes (4 blocks
+starting at offset 6) — the trailing 2 bytes (`F4 C8`) aren't consumed by
+anything yet. Send `raw <preset>` for any decoded command to see what its
+parser leaves on the table before deciding whether it's worth decoding.
 
 ### JSON Output & Watch Mode
 ```bash

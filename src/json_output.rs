@@ -49,6 +49,11 @@ fn telemetry_tag_label(tag: u8) -> Option<&'static str> {
 }
 
 /// JSON body for the `info` command.
+///
+/// Always includes the raw firmware/battery-voltage response frames as hex
+/// strings (not just the decoded fields), same rationale as `diagnosis`'s
+/// `telemetry_tags`: JSON is machine-consumed, so there's no reason to hide
+/// data behind a `--raw` toggle the way the text output does.
 pub fn device_status(status: &DeviceStatus) -> Value {
     let info = &status.device_info;
     json!({
@@ -59,8 +64,15 @@ pub fn device_status(status: &DeviceStatus) -> Value {
         "software_revision": info.software_revision,
         "product_number": status.product_number,
         "stick_firmware": status.stick_firmware.to_string(),
+        "stick_firmware_raw": hex_string(&status.stick_firmware_raw),
         "holder_product_number": status.holder_product_number,
         "holder_firmware": status.holder_firmware.map(|firmware| firmware.to_string()),
+        "holder_firmware_raw": status.holder_firmware_raw.as_deref().map(hex_string),
         "battery_voltage": status.battery_voltage,
+        "battery_voltage_raw": status.battery_voltage_raw.as_deref().map(hex_string),
     })
+}
+
+fn hex_string(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02X}")).collect::<Vec<_>>().join(" ")
 }

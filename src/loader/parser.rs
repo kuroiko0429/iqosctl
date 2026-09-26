@@ -194,6 +194,7 @@ fn register_all_commands(console: &mut IQOSConsole) {
     crate::loader::cmds::autostart::register_command(console);
     crate::loader::cmds::smartgesture::register_command(console);
     crate::loader::cmds::diagnosis::register_command(console);
+    crate::loader::cmds::raw::register_command(console);
 }
 
 fn history_file() -> PathBuf {

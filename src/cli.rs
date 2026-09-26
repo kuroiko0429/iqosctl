@@ -108,9 +108,25 @@ pub enum CliCommand {
         args: Vec<String>,
     },
     /// Device metadata, firmware, and voltage snapshot.
-    Info,
+    Info {
+        #[arg(
+            value_name = "arg",
+            allow_hyphen_values = true,
+            trailing_var_arg = true
+        )]
+        args: Vec<String>,
+    },
     /// Lock the device.
     Lock,
+    /// Send a raw SCP command and dump the raw response (protocol debugging).
+    Raw {
+        #[arg(
+            value_name = "arg",
+            allow_hyphen_values = true,
+            trailing_var_arg = true
+        )]
+        args: Vec<String>,
+    },
     /// Configure SmartGesture.
     Smartgesture {
         #[arg(
@@ -184,8 +200,9 @@ impl CliCommand {
             Self::Findmyiqos => registered("findmyiqos", Vec::new()),
             Self::Flexbattery { args } => registered("flexbattery", args),
             Self::Flexpuff { args } => registered("flexpuff", args),
-            Self::Info => registered("info", Vec::new()),
+            Self::Info { args } => registered("info", args),
             Self::Lock => registered("lock", Vec::new()),
+            Self::Raw { args } => registered("raw", args),
             Self::Smartgesture { args } => registered("smartgesture", args),
             Self::Unlock => registered("unlock", Vec::new()),
             Self::Vibration { args } => registered("vibration", args),

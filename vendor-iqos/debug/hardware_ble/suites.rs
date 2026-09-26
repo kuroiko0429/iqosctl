@@ -190,9 +190,12 @@ mod tests {
             },
             product_number: "STICK-PRODUCT".to_string(),
             stick_firmware: FirmwareVersion { major: 1, minor: 2, patch: 3, year: 24 },
+            stick_firmware_raw: Vec::new(),
             holder_product_number: None,
             holder_firmware: None,
+            holder_firmware_raw: None,
             battery_voltage: Some(4.123),
+            battery_voltage_raw: None,
         };
 
         let lines = status_snapshot_lines(&status);
@@ -218,9 +221,12 @@ mod tests {
             },
             product_number: "STICK-PRODUCT".to_string(),
             stick_firmware: FirmwareVersion { major: 2, minor: 3, patch: 4, year: 25 },
+            stick_firmware_raw: Vec::new(),
             holder_product_number: Some("HOLDER-PRODUCT".to_string()),
             holder_firmware: Some(FirmwareVersion { major: 5, minor: 6, patch: 7, year: 26 }),
+            holder_firmware_raw: None,
             battery_voltage: None,
+            battery_voltage_raw: None,
         };
 
         let lines = status_snapshot_lines(&status);
