@@ -290,10 +290,19 @@ Vibration flags: `heating`, `starting`, `puffend`, `terminated`, `charge`¹
 | `raw <preset\|hex-bytes>` | Send a raw SCP command and dump the full raw response frame |
 
 Presets (reuse the exact command bytes the decoded commands send): `brightness`,
-`firmware-stick`, `firmware-holder`, `autostart`, `flexpuff`, `flexbattery`,
-`pausemode`, `vibration`, `vibration-charge-start`, `battery-voltage`,
-`telemetry`, `timestamp`, `product-stick`, `product-holder`. Or pass raw hex
-bytes directly, e.g. `raw "00 C0 02 23 C3"` / `raw 00C00223C3`.
+`firmware-stick` (alias `firmware-charger`), `firmware-holder`, `autostart`,
+`flexpuff`, `flexbattery`, `pausemode`, `vibration`, `vibration-charge-start`,
+`battery-voltage`, `telemetry`, `timestamp`, `product-stick` (alias
+`product-charger`), `product-holder`. Or pass raw hex bytes directly, e.g.
+`raw "00 C0 02 23 C3"` / `raw 00C00223C3`.
+
+The `-charger` aliases exist because what this crate (and the `iqos` crate
+it's built on) calls "stick" is, on real hardware, the charging case: the
+"stick" firmware version shares its major.minor with the standard GATT
+`software_revision` string (e.g. both report `135.5` — see `v135.5.0.33` vs.
+`IQOS 4.1 SW Charger v135.5.0`), while "holder" is the part you inhale from.
+The underlying `iqos` crate's naming is left as-is; these are just
+discoverability aliases in `iqosctl`.
 
 This exists because several response frames are longer than what gets
 decoded — `diagnosis --raw` and `info --raw` already formalize the two

@@ -25,6 +25,16 @@ pub fn register_command(console: &mut IQOSConsole) {
 
 /// Preset name -> command bytes, using the same constants the decoded
 /// commands send. Keep in sync with [`PRESET_NAMES`].
+///
+/// `firmware-charger`/`product-charger` are aliases for
+/// `firmware-stick`/`product-stick`, not separate SCP targets: on a real
+/// ILUMA i, the "stick" firmware version (e.g. `v135.5.0.33`) shares its
+/// major.minor with the standard GATT `software_revision` string (`IQOS 4.1
+/// SW Charger v135.5.0`), confirming what this crate calls "stick" is
+/// physically the charging case ("Charger" in IQOS's own naming), while
+/// "holder" is the part you inhale from. The `iqos` crate's naming predates
+/// this finding and is kept as-is to avoid an unrelated rename; these
+/// aliases just make the actual target discoverable under both names.
 pub(crate) fn preset_command(name: &str) -> Option<&'static [u8]> {
     use iqos::protocol::{
         HOLDER_PRODUCT_NUMBER_COMMAND, LOAD_AUTOSTART_COMMAND, LOAD_BATTERY_VOLTAGE_COMMAND,
@@ -37,7 +47,7 @@ pub(crate) fn preset_command(name: &str) -> Option<&'static [u8]> {
 
     Some(match name {
         "brightness" => &LOAD_BRIGHTNESS_COMMAND,
-        "firmware-stick" => &LOAD_STICK_FIRMWARE_VERSION_COMMAND,
+        "firmware-stick" | "firmware-charger" => &LOAD_STICK_FIRMWARE_VERSION_COMMAND,
         "firmware-holder" => &LOAD_HOLDER_FIRMWARE_VERSION_COMMAND,
         "autostart" => &LOAD_AUTOSTART_COMMAND,
         "flexpuff" => &LOAD_FLEXPUFF_COMMAND,
@@ -48,7 +58,7 @@ pub(crate) fn preset_command(name: &str) -> Option<&'static [u8]> {
         "battery-voltage" => &LOAD_BATTERY_VOLTAGE_COMMAND,
         "telemetry" => &LOAD_TELEMETRY_COMMAND,
         "timestamp" => &LOAD_TIMESTAMP_COMMAND,
-        "product-stick" => &PRODUCT_NUMBER_COMMAND,
+        "product-stick" | "product-charger" => &PRODUCT_NUMBER_COMMAND,
         "product-holder" => &HOLDER_PRODUCT_NUMBER_COMMAND,
         _ => return None,
     })
@@ -59,6 +69,7 @@ pub(crate) fn preset_command(name: &str) -> Option<&'static [u8]> {
 pub(crate) const PRESET_NAMES: &[&str] = &[
     "brightness",
     "firmware-stick",
+    "firmware-charger",
     "firmware-holder",
     "autostart",
     "flexpuff",
@@ -70,14 +81,20 @@ pub(crate) const PRESET_NAMES: &[&str] = &[
     "telemetry",
     "timestamp",
     "product-stick",
+    "product-charger",
     "product-holder",
 ];
 
-const USAGE: &str = "Usage: raw <preset|hex-bytes>\n  presets: brightness, firmware-stick, firmware-holder, autostart, flexpuff,\n           flexbattery, pausemode, vibration, vibration-charge-start,\n           battery-voltage, telemetry, timestamp, product-stick, product-holder\n  hex-bytes: e.g. \"00 C0 02 23 C3\" or \"00C00223C3\"";
+fn usage() -> String {
+    format!(
+        "Usage: raw <preset|hex-bytes>\n  presets: {}\n  hex-bytes: e.g. \"00 C0 02 23 C3\" or \"00C00223C3\"",
+        PRESET_NAMES.join(", ")
+    )
+}
 
 async fn execute(iqos: Arc<Mutex<Iqos<IqosBle>>>, args: Vec<String>) -> Result<()> {
     if args.len() != 2 {
-        return Err(invalid_arguments(USAGE));
+        return Err(invalid_arguments(usage()));
     }
     let target = args[1].as_str();
     let command = resolve_command(target)?;
@@ -99,7 +116,7 @@ fn resolve_command(target: &str) -> Result<Vec<u8>> {
 
 fn parse_hex(value: &str) -> Result<Vec<u8>> {
     let cleaned: String = value.chars().filter(|c| !c.is_whitespace() && *c != ':').collect();
-    let invalid = || invalid_arguments(format!("Invalid raw command bytes: {value}\n\n{USAGE}"));
+    let invalid = || invalid_arguments(format!("Invalid raw command bytes: {value}\n\n{}", usage()));
 
     if cleaned.is_empty()
         || !cleaned.len().is_multiple_of(2)
