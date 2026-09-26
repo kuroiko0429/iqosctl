@@ -4,7 +4,9 @@
 //! `loader::cmds::{battery,info,diagnosis}` so scripts consuming `--format
 //! json` see the same data a human sees in text mode.
 
-use iqos::{DeviceStatus, DiagnosticData};
+use iqos::{
+    DeviceStatus, DiagnosticData, TELEMETRY_TAG_DAY_COUNTER, TELEMETRY_TAG_PUFF_COUNT,
+};
 use serde_json::{json, Value};
 
 /// JSON body for the `battery` command.
@@ -13,12 +15,37 @@ pub fn battery(level: u8) -> Value {
 }
 
 /// JSON body for the `diagnosis` command.
+///
+/// Always includes the full `telemetry_tags` list (not just recognized
+/// ones) since JSON is machine-consumed; there is no `--raw` toggle here,
+/// unlike the text output.
 pub fn diagnosis(data: &DiagnosticData) -> Value {
+    let telemetry_tags: Vec<Value> = data
+        .telemetry_tags
+        .iter()
+        .map(|entry| {
+            json!({
+                "tag": format!("0x{:02X}", entry.tag),
+                "value": entry.value,
+                "known_as": telemetry_tag_label(entry.tag),
+            })
+        })
+        .collect();
+
     json!({
         "total_puffs": data.total_smoking_count,
         "days_used": data.days_used,
         "battery_voltage": data.battery_voltage,
+        "telemetry_tags": telemetry_tags,
     })
+}
+
+fn telemetry_tag_label(tag: u8) -> Option<&'static str> {
+    match tag {
+        TELEMETRY_TAG_PUFF_COUNT => Some("total_smoking_count"),
+        TELEMETRY_TAG_DAY_COUNTER => Some("days_used"),
+        _ => None,
+    }
 }
 
 /// JSON body for the `info` command.

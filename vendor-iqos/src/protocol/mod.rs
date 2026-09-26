@@ -27,7 +27,7 @@ pub use brightness::{BrightnessLevel, LOAD_BRIGHTNESS_COMMAND};
 pub(crate) use diagnosis::DiagnosticDataBuilder;
 pub use diagnosis::{
     ALL_DIAGNOSIS_COMMANDS, DiagnosticData, LOAD_BATTERY_VOLTAGE_COMMAND, LOAD_TELEMETRY_COMMAND,
-    LOAD_TIMESTAMP_COMMAND,
+    LOAD_TIMESTAMP_COMMAND, TELEMETRY_TAG_DAY_COUNTER, TELEMETRY_TAG_PUFF_COUNT, TelemetryTag,
 };
 pub use firmware::{
     FirmwareKind, FirmwareVersion, LOAD_HOLDER_FIRMWARE_VERSION_COMMAND,

@@ -35,7 +35,8 @@ pub use error::{Error, Result};
 pub use protocol::{
     BrightnessLevel, DeviceCapability, DeviceInfo, DeviceModel, DeviceStatus, DiagnosticData,
     FirmwareKind, FirmwareVersion, FlexBatteryMode, FlexBatterySettings, FlexPuffSetting,
-    ProductNumberKind, VibrationSettings,
+    ProductNumberKind, TELEMETRY_TAG_DAY_COUNTER, TELEMETRY_TAG_PUFF_COUNT, TelemetryTag,
+    VibrationSettings,
 };
 pub use transport::{Transport, TransportKind};
 

@@ -43,6 +43,7 @@ This is a fork of [hauntedfail/iqos_cli](https://github.com/hauntedfail/iqos_cli
 - `battery --watch [--interval <secs>]` for continuous polling without reconnecting.
 - `--retries <attempts>` / `IQOS_MAX_RETRIES` for automatic reconnect-and-retry on transport failures.
 - `completions <bash|zsh|fish|elvish|powershell>` for shell completion scripts.
+- `diagnosis --raw` to dump every telemetry tag/value block the device reports, including ones the reverse-engineered protocol doesn't decode into a named field yet.
 
 ## Architecture
 
@@ -234,7 +235,7 @@ iqos completions bash > ~/.local/share/bash-completion/completions/iqos
 | `version` | Show the IQOS CLI version |
 | `info` | Show device model, serial number, GATT metadata, firmware, product number, and battery voltage |
 | `battery` | Show current battery level |
-| `diagnosis` | Show puff count, days used, and battery voltage |
+| `diagnosis [--raw]` | Show puff count, days used, and battery voltage. `--raw` also lists every telemetry tag the device reports, including ones not yet mapped to a named field |
 | `lock` | Lock the device |
 | `unlock` | Unlock the device |
 | `findmyiqos` | Vibrate the device until Enter is pressed |
@@ -293,6 +294,34 @@ Diagnosis:
   Days used:       42
   Battery voltage: 3.87V
 ```
+
+### Raw Diagnosis Tags
+
+The reverse-engineered protocol only decodes two of the tag/value blocks the
+device actually reports (`total_smoking_count`, `days_used`); `--raw` shows
+all of them:
+
+```
+iqos> diagnosis --raw
+Diagnosis:
+  Total puffs:     1939
+  Days used:       1414
+  Battery voltage: 9.41V
+Raw telemetry tags (8 total):
+  tag=0x8E value=1939   (total_smoking_count)
+  tag=0x20 value=2042   (unrecognized)
+  tag=0x17 value=1414   (days_used)
+  tag=0x18 value=29     (unrecognized)
+  tag=0x8E value=1939   (total_smoking_count)
+  tag=0x20 value=2042   (unrecognized)
+  tag=0x17 value=1414   (days_used)
+  tag=0x18 value=29     (unrecognized)
+```
+
+Tags 0x20 and 0x18 are real device telemetry (confirmed against a physical
+ILUMA i) with no known meaning yet — the device sends the same frame twice
+per read, hence each tag appearing twice. `--format json diagnosis --raw`
+includes the same `telemetry_tags` array unconditionally.
 
 ### JSON Output & Watch Mode
 ```bash

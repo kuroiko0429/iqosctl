@@ -79,7 +79,14 @@ pub enum CliCommand {
         command: DeviceCommand,
     },
     /// Retrieve telemetry data.
-    Diagnosis,
+    Diagnosis {
+        #[arg(
+            value_name = "arg",
+            allow_hyphen_values = true,
+            trailing_var_arg = true
+        )]
+        args: Vec<String>,
+    },
     /// Activate find-my-device vibration.
     Findmyiqos,
     /// Configure FlexBattery.
@@ -173,7 +180,7 @@ impl CliCommand {
                 DeviceCommand::List => OneShotCommand::DeviceList,
                 DeviceCommand::Remove { label } => OneShotCommand::DeviceRemove { label },
             },
-            Self::Diagnosis => registered("diagnosis", Vec::new()),
+            Self::Diagnosis { args } => registered("diagnosis", args),
             Self::Findmyiqos => registered("findmyiqos", Vec::new()),
             Self::Flexbattery { args } => registered("flexbattery", args),
             Self::Flexpuff { args } => registered("flexpuff", args),

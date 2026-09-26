@@ -25,14 +25,27 @@ const TELEMETRY_HEADER: [u8; 2] = [0x90, 0x22];
 const TIMESTAMP_HEADER: [u8; 2] = [0x80, 0x02];
 const BATTERY_VOLTAGE_HEADER: [u8; 2] = [0x88, 0x21];
 
-// Tag identifiers within 8-byte telemetry blocks.
-const TAG_PUFF_COUNT: u8 = 0x8E;
-const TAG_DAY_COUNTER: u8 = 0x17;
+/// Tag identifier for the puff-count block within a telemetry frame.
+pub const TELEMETRY_TAG_PUFF_COUNT: u8 = 0x8E;
+/// Tag identifier for the day-counter block within a telemetry frame.
+pub const TELEMETRY_TAG_DAY_COUNTER: u8 = 0x17;
+
+/// A single tag/value block parsed from a telemetry response frame.
+///
+/// Every block the device reports is captured here, whether or not this
+/// crate has a named field for it — see [`DiagnosticData::telemetry_tags`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TelemetryTag {
+    /// Tag byte identifying the kind of value in this block.
+    pub tag: u8,
+    /// Raw 16-bit value associated with the tag.
+    pub value: u16,
+}
 
 /// Diagnostic telemetry data collected from the device.
 ///
-/// All fields are optional because each is sourced from a separate response
-/// frame. Fields remain `None` if the corresponding frame could not be parsed.
+/// The named fields are optional because each is sourced from a separate
+/// response frame and remains `None` if that frame could not be parsed.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct DiagnosticData {
     /// Total puff (smoking) count.
@@ -41,6 +54,11 @@ pub struct DiagnosticData {
     pub days_used: Option<u16>,
     /// Current battery voltage in volts.
     pub battery_voltage: Option<f32>,
+    /// Every tag/value block seen across all telemetry frames, in the order
+    /// received, including tags this crate doesn't map to a named field
+    /// above (e.g. via [`TELEMETRY_TAG_PUFF_COUNT`]/[`TELEMETRY_TAG_DAY_COUNTER`]).
+    /// Useful for inspecting device telemetry this crate doesn't decode yet.
+    pub telemetry_tags: Vec<TelemetryTag>,
 }
 
 impl DiagnosticData {
@@ -138,9 +156,10 @@ impl DiagnosticDataBuilder {
         for i in 0..num_blocks {
             let offset = blocks_start + i * TelemetryBlock::SIZE;
             let block = TelemetryBlock::parse(&bytes[offset..offset + TelemetryBlock::SIZE])?;
+            self.inner.telemetry_tags.push(TelemetryTag { tag: block.tag, value: block.value });
             match block.tag {
-                TAG_PUFF_COUNT => self.inner.total_smoking_count = Some(block.value),
-                TAG_DAY_COUNTER => self.inner.days_used = Some(block.value),
+                TELEMETRY_TAG_PUFF_COUNT => self.inner.total_smoking_count = Some(block.value),
+                TELEMETRY_TAG_DAY_COUNTER => self.inner.days_used = Some(block.value),
                 _ => {}
             }
         }
@@ -171,8 +190,8 @@ impl DiagnosticDataBuilder {
 #[cfg(test)]
 mod tests {
     use super::{
-        ALL_DIAGNOSIS_COMMANDS, DiagnosticData, DiagnosticDataBuilder,
-        LOAD_BATTERY_VOLTAGE_COMMAND, LOAD_TELEMETRY_COMMAND, LOAD_TIMESTAMP_COMMAND,
+        ALL_DIAGNOSIS_COMMANDS, DiagnosticData, DiagnosticDataBuilder, LOAD_BATTERY_VOLTAGE_COMMAND,
+        LOAD_TELEMETRY_COMMAND, LOAD_TIMESTAMP_COMMAND, TelemetryTag,
     };
 
     #[test]
@@ -247,5 +266,61 @@ mod tests {
         // bytes[5]=0xE8, bytes[6]=0x0F → 0x0FE8 = 4072
         assert_eq!(result.battery_voltage, Some(4072_f32 / 1000.0));
         assert_eq!(result.total_smoking_count, None);
+    }
+
+    #[test]
+    fn telemetry_tags_capture_unrecognized_tags_alongside_known_ones() {
+        // header [0x90, 0x22] forces length_byte=0x22=34 -> num_blocks=4,
+        // matching what the device actually sends: 4 tag blocks per
+        // telemetry frame, only 2 of which (0x8E, 0x17) get a named field.
+        #[rustfmt::skip]
+        let bytes: [u8; 38] = [
+            0x00, 0x00, 0x90, 0x22, 0x01, 0x01,
+            // block 0: tag 0x8E (known: total_smoking_count), value 1234
+            0x00, 0x00, 0x00, 0x00, 0xD2, 0x04, 0x00, 0x8E,
+            // block 1: tag 0x17 (known: days_used), value 42
+            0x00, 0x00, 0x00, 0x00, 0x2A, 0x00, 0x00, 0x17,
+            // block 2: tag 0x33 (unrecognized), value 7
+            0x00, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x33,
+            // block 3: tag 0x99 (unrecognized), value 999
+            0x00, 0x00, 0x00, 0x00, 0xE7, 0x03, 0x00, 0x99,
+        ];
+
+        let result = DiagnosticDataBuilder::default().parse(&bytes).unwrap().build();
+
+        assert_eq!(result.total_smoking_count, Some(1234));
+        assert_eq!(result.days_used, Some(42));
+        assert_eq!(
+            result.telemetry_tags,
+            vec![
+                TelemetryTag { tag: 0x8E, value: 1234 },
+                TelemetryTag { tag: 0x17, value: 42 },
+                TelemetryTag { tag: 0x33, value: 7 },
+                TelemetryTag { tag: 0x99, value: 999 },
+            ]
+        );
+    }
+
+    #[test]
+    fn telemetry_tags_accumulate_across_repeated_telemetry_frames() {
+        #[rustfmt::skip]
+        let bytes: [u8; 38] = [
+            0x00, 0x00, 0x90, 0x22, 0x01, 0x01,
+            0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x8E,
+            0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x17,
+            0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x33,
+            0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x99,
+        ];
+
+        let result = DiagnosticDataBuilder::default()
+            .parse(&bytes)
+            .unwrap()
+            .parse(&bytes)
+            .unwrap()
+            .build();
+
+        // ALL_DIAGNOSIS_COMMANDS sends LOAD_TELEMETRY_COMMAND twice, so a
+        // real diagnosis read accumulates two frames' worth of tags.
+        assert_eq!(result.telemetry_tags.len(), 8);
     }
 }
