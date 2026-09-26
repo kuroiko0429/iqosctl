@@ -1,0 +1,30 @@
+/target
+/Cargo.lock
+**/.DS_Store
+**/.idea/
+**/.vscode/
+**/*.log
+
+# Local harness / agent coordination artifacts
+/AGENTS.md
+/docs/plans/
+/docs/packets/
+/docs/rules/
+/.github/copilot-instructions.md
+/package-lock.json
+
+# Nested reference repo artifacts that should not leak into the root project
+/iqos_cli/target
+/iqos_cli/.git
+/iqos_cli/.serena
+/iqos_cli/.claude
+/iqos_cli
+.serena
+.claude
+.agents
+CLAUDE.md
+.claude-*
+.codex
+docs/packet_analysis
+docs/firmware_extraction
+skills

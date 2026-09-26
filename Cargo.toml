@@ -16,3 +16,7 @@ rustyline = "11.0"
 serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "1.0", features = ["full"] }
 toml = "0.8"
+
+[patch.crates-io]
+bluez-async = { path = "vendor-bluez-async/bluez-async" }
+iqos = { path = "vendor-iqos" }
